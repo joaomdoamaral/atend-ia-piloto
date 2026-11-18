@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "dataInicio": {
+      "type": "string",
+      "description": "Primeiro dia da busca, no formato AAAA-MM-DD. Use hoje se o cliente nao tiver preferencia."
+    },
+    "dataFim": {
+      "type": "string",
+      "description": "Ultimo dia da busca, no formato AAAA-MM-DD. Normalmente cerca de 5 dias depois de dataInicio."
+    },
+    "preferenciaPeriodo": {
+      "type": "string",
+      "enum": ["manha", "tarde"],
+      "description": "Periodo preferido pelo cliente. Omita se ele nao tiver preferencia."
+    }
+  },
+  "required": ["dataInicio"]
+}

@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "horarioEscolhido": {
+      "type": "string",
+      "description": "Exatamente o campo 'horario' (ISO-8601) devolvido por check_availability para a opcao escolhida pelo cliente."
+    },
+    "nome": {
+      "type": "string",
+      "description": "Nome completo do cliente."
+    },
+    "empresa": {
+      "type": "string",
+      "description": "Nome da empresa ou loja do cliente, se ele informou."
+    },
+    "assunto": {
+      "type": "string",
+      "description": "Resumo curto do que o cliente quer tratar com o Patrick, com as palavras dele (ex: 'problemas de vendas e gestao da equipe na loja')."
+    },
+    "telefone": {
+      "type": "string",
+      "description": "Telefone de contato com DDD informado e confirmado pelo cliente (ex: 11987654321). Obrigatorio, a menos que o cliente tenha informado e-mail."
+    },
+    "email": {
+      "type": "string",
+      "description": "E-mail do cliente, somente se ele quiser informar."
+    }
+  },
+  "required": ["horarioEscolhido", "nome"]
+}

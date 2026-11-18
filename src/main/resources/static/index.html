@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atendimento PS Varejo</title>
+  <style>
+    :root {
+      --bg: #f6f5f2;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6b6b70;
+      --accent: #0f6b4f;
+      --accent-text: #ffffff;
+      --danger: #b3261e;
+      --ring: rgba(15, 107, 79, .25);
+      --border: #e4e2dc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121214;
+        --card: #1c1c1f;
+        --text: #f2f2f3;
+        --muted: #a1a1a8;
+        --accent: #3fbf8f;
+        --accent-text: #0b1a14;
+        --danger: #ff6b60;
+        --ring: rgba(63, 191, 143, .25);
+        --border: #2c2c31;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main {
+      width: 100%;
+      max-width: 420px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 24px;
+      text-align: center;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 6px; }
+    .sub { color: var(--muted); margin: 0 0 28px; line-height: 1.45; }
+    .botao {
+      width: 168px;
+      height: 168px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .1s, background .2s;
+      box-shadow: 0 0 0 0 var(--ring);
+    }
+    .botao:active { transform: scale(.97); }
+    .botao:disabled { opacity: .6; cursor: wait; }
+    .botao.em-ligacao { background: var(--danger); }
+    .status { margin: 24px 0 0; min-height: 1.5em; font-weight: 500; }
+    .dica { color: var(--muted); font-size: .9rem; margin: 8px 0 0; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>PS Varejo</h1>
+    <p class="sub">Converse com o nosso atendimento virtual e agende um horário com o Patrick Salomão.</p>
+    <button id="botao" class="botao" disabled>Carregando…</button>
+    <p id="status" class="status" aria-live="polite"></p>
+    <p class="dica">Use fone de ouvido ou fale perto do microfone. O navegador vai pedir permissão para usar o microfone.</p>
+  </main>
+
+  <!-- O SDK importa a lib Daily por caminho absoluto ("/npm/..."); alguns navegadores (Safari/iOS)
+       resolvem isso contra o nosso dominio em vez do jsDelivr. O import map redireciona para o CDN. -->
+  <script type="importmap">
+    { "imports": { "/npm/": "https://cdn.jsdelivr.net/npm/" } }
+  </script>
+  <script type="module">
+    import VapiModule from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@3.1.0/+esm";
+    // O pacote e CommonJS; convertido pelo CDN, a classe pode vir dentro de .default
+    const Vapi = VapiModule.default ?? VapiModule;
+
+    const botao = document.getElementById("botao");
+    const status = document.getElementById("status");
+    let vapi = null;
+    let assistantId = null;
+    let emLigacao = false;
+
+    function estado(texto, rotuloBotao, habilitado = true) {
+      status.textContent = texto;
+      botao.textContent = rotuloBotao;
+      botao.disabled = !habilitado;
+    }
+
+    try {
+      const resposta = await fetch("demo/config");
+      const config = await resposta.json();
+      if (!resposta.ok) throw new Error(config.erro || "configuração indisponível");
+      assistantId = config.assistantId;
+      vapi = new Vapi(config.publicKey);
+
+      vapi.on("call-start", () => {
+        emLigacao = true;
+        botao.classList.add("em-ligacao");
+        estado("Em ligação. Pode falar!", "Encerrar");
+      });
+      vapi.on("call-end", () => {
+        emLigacao = false;
+        botao.classList.remove("em-ligacao");
+        botao.style.boxShadow = "";
+        estado("Ligação encerrada. Obrigado!", "Ligar de novo");
+      });
+      vapi.on("speech-start", () => { status.textContent = "Atendimento falando…"; });
+      vapi.on("speech-end", () => { if (emLigacao) status.textContent = "Ouvindo você…"; });
+      vapi.on("volume-level", (v) => {
+        botao.style.boxShadow = `0 0 0 ${Math.round(v * 28)}px var(--ring)`;
+      });
+      vapi.on("error", (e) => {
+        console.error(e);
+        emLigacao = false;
+        botao.classList.remove("em-ligacao");
+        estado("Não foi possível completar a ligação. Tente novamente.", "Falar com o atendimento");
+      });
+
+      estado("", "Falar com o atendimento");
+    } catch (e) {
+      console.error(e);
+      estado("Atendimento indisponível no momento.", "Indisponível", false);
+    }
+
+    botao.addEventListener("click", async () => {
+      if (!vapi) return;
+      if (emLigacao) {
+        vapi.stop();
+        return;
+      }
+      estado("Conectando…", "Conectando…", false);
+      try {
+        // O painel da Vapi recoloca as frases de silencio em ingles a cada publicacao;
+        // enviar como override garante portugues nas ligacoes feitas por esta pagina.
+        await vapi.start(assistantId, {
+          messagePlan: {
+            idleMessages: [
+              "Oi, você ainda está aí?",
+              "Pode falar, tô te ouvindo.",
+              "Se preferir, posso repetir a pergunta."
+            ],
+            idleTimeoutSeconds: 8,
+            idleMessageMaxSpokenCount: 3
+          }
+        });
+      } catch (e) {
+        console.error(e);
+        estado("Não foi possível iniciar. Verifique a permissão do microfone.", "Falar com o atendimento");
+      }
+    });
+  </script>
+</body>
+</html>
