@@ -4,17 +4,24 @@ server:
 spring:
   application:
     name: atend-ia-piloto
+  config:
+    # Para desenvolvimento local: le variaveis do arquivo .env (fora do Git), se existir.
+    # Em producao, use variaveis de ambiente de verdade.
+    import: optional:file:.env[.properties]
 
 agenda:
-  calendar-id: ${AGENDA_CALENDAR_ID:patrick@psvarejo.com.br}
-  credentials-path: ${AGENDA_CREDENTIALS_PATH:/home/claude/atend-ia-piloto/credentials/service-account.json}
+  cal-api-key: ${CAL_API_KEY:}
+  cal-base-url: ${CAL_BASE_URL:https://api.cal.com/v2}
+  cal-event-type-id: ${CAL_EVENT_TYPE_ID:}
   timezone: ${AGENDA_TIMEZONE:America/Sao_Paulo}
-  business-hour-start: ${AGENDA_BUSINESS_HOUR_START:09:00}
-  business-hour-end: ${AGENDA_BUSINESS_HOUR_END:18:00}
-  slot-duration-minutes: ${AGENDA_SLOT_DURATION_MINUTES:30}
   max-slots-returned: ${AGENDA_MAX_SLOTS_RETURNED:5}
+  max-slots-per-day: ${AGENDA_MAX_SLOTS_PER_DAY:2}
   max-days-ahead: ${AGENDA_MAX_DAYS_AHEAD:30}
   vapi-webhook-secret: ${AGENDA_VAPI_WEBHOOK_SECRET:}
+
+demo:
+  vapi-public-key: ${VAPI_PUBLIC_KEY:}
+  vapi-assistant-id: ${VAPI_ASSISTANT_ID:}
 
 logging:
   level:

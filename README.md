@@ -1,115 +1,91 @@
 # atend-ia-piloto
 
-Backend de integração entre o atendente de IA (Vapi) e a agenda do Google Calendar
-do consultor da PS Varejo. Projeto piloto: a IA atende a ligação, conversa com o
-cliente e, por meio deste backend, consulta horários livres e cria o evento
-confirmado na agenda do Patrick Salomão.
+Backend de integração entre o atendente de IA (Vapi) e a agenda do consultor da
+PS Varejo. Projeto piloto: a IA atende a ligação, conversa com o cliente e, por
+meio deste backend, consulta horários livres e cria a reunião confirmada com o
+Patrick Salomão.
 
-## O que já está pronto neste repositório
+A agenda é gerenciada pelo **[Cal.com](https://cal.com)**, que fica conectado ao
+Google Calendar do consultor. O backend não fala com o Google diretamente — só
+com a API v2 do Cal.com (autenticação por chave de API, sem Google Cloud).
 
-- Projeto Spring Boot (Java 21, Maven) com dois endpoints que a Vapi chama como
-  "tools" durante a ligação:
-  - `POST /vapi/tools/check-availability` — consulta horários livres via
-    Google Calendar FreeBusy API
-  - `POST /vapi/tools/book-meeting` — cria o evento confirmado via Google
-    Calendar Events API (com revalidação de conflito no momento da criação)
-- Filtro de segurança simples que exige um segredo compartilhado no header
-  `X-Vapi-Secret` em toda chamada a `/vapi/**`
-- Configuração de horário comercial, dias úteis, duração da reunião e fuso
-  horário via `application.yml` / variáveis de ambiente (nada disso está
-  hardcoded)
-
-⚠️ **Não consegui rodar `mvn compile` aqui no ambiente** — o Maven Central não é
-acessível a partir deste sandbox (só tenho saída liberada pra npm, pip e
-GitHub). O código segue os padrões normais da lib oficial do Google
-(`google-api-services-calendar` + `google-auth-library-oauth2-http`), mas a
-primeira validação de build de verdade vai acontecer na sua máquina — se
-aparecer algum erro de compilação, me manda o log que eu ajusto.
-
-## Passo a passo do que falta você fazer
-
-### 1. Criar o projeto no Google Cloud e a Service Account
-
-1. Acesse [console.cloud.google.com](https://console.cloud.google.com) e crie
-   um projeto novo (ex: `ps-varejo-atendimento`)
-2. Em **APIs e serviços > Biblioteca**, ative a **Google Calendar API**
-3. Em **APIs e serviços > Credenciais > Criar credenciais > Conta de
-   serviço**, crie uma service account (ex: `atend-ia-calendar`)
-4. Na aba **Chaves** dessa service account, crie uma chave nova tipo **JSON**
-   — isso baixa um arquivo `.json`. Guarde ele, é a credencial da aplicação.
-
-### 2. Compartilhar a agenda do Patrick com a service account
-
-1. O Patrick abre o Google Calendar dele, vai em **Configurações da agenda >
-   Compartilhar com pessoas específicas**
-2. Adiciona o e-mail da service account (algo como
-   `atend-ia-calendar@ps-varejo-atendimento.iam.gserviceaccount.com`, você
-   encontra esse e-mail na própria tela da service account)
-3. Permissão: **"Fazer alterações em eventos"**
-
-### 3. Rodar o projeto localmente
-
-1. Clone o repositório e coloque o `service-account.json` baixado dentro de
-   uma pasta `credentials/` na raiz do projeto (essa pasta já está no
-   `.gitignore`, não vai parar no Git)
-2. Defina as variáveis de ambiente (ou edite o `application.yml` direto para
-   testar):
-
-```bash
-export AGENDA_CALENDAR_ID="email-da-agenda-do-patrick@gmail.com"
-export AGENDA_CREDENTIALS_PATH="$(pwd)/credentials/service-account.json"
-export AGENDA_VAPI_WEBHOOK_SECRET="escolha-um-segredo-forte-aqui"
+```
+Ligação ──> Vapi (STT + LLM + TTS) ──tools──> este backend ──> Cal.com ──> Google Calendar
 ```
 
-3. Rodar: `./mvnw spring-boot:run` (ou `mvn spring-boot:run`)
-4. A API sobe em `http://localhost:8080`
+## Endpoints (tools da Vapi)
 
-### 4. Expor pra internet (pra testar com a Vapi de verdade)
+| Tool | Endpoint | O que faz |
+|---|---|---|
+| `check_availability` | `POST /vapi/tools/check-availability` | Busca horários livres no Cal.com e devolve poucas opções, espaçadas e espalhadas entre dias |
+| `book_meeting` | `POST /vapi/tools/book-meeting` | Cria a reserva no Cal.com (que revalida a disponibilidade) |
 
-Enquanto não tem deploy definitivo, use o [ngrok](https://ngrok.com):
+- Toda chamada a `/vapi/**` exige o header `X-Vapi-Secret` com o segredo configurado.
+- Os endpoints recebem o envelope da Vapi (`message.toolCallList[]`) e respondem
+  no formato `{"results":[{"toolCallId":"...","result":"..."}]}`.
+- Se o LLM não informar o telefone no `book_meeting`, é usado o número de quem ligou
+  (`message.call.customer.number`).
 
-```bash
-ngrok http 8080
+## Configuração do Cal.com
+
+1. **Apps instalados > Calendário**: conecte o Google Calendar e ligue
+   "Verificar se há conflitos" na agenda do consultor.
+2. **Disponibilidade**: seg–sex, 09:00–18:00, fuso `America/Sao_Paulo`.
+3. **Links > Novo**: "Conversa com Patrick Salomão", 30 min.
+   - *Limites e intervalos*: aviso mínimo (ex: 2h) e intervalo entre reuniões.
+   - *Formulário de reserva*: telefone obrigatório, e-mail opcional.
+4. **Configurações > Desenvolvedor > Chaves de API**
+   (`https://app.cal.com/settings/developer/api-keys`): gere a chave.
+5. Descubra o ID numérico do tipo de evento:
+
+```powershell
+(Invoke-RestMethod -Uri "https://api.cal.com/v2/event-types" -Headers @{ Authorization = "Bearer $env:CAL_API_KEY"; "cal-api-version" = "2024-06-14" }).data | Select-Object id, slug, title
 ```
 
-Isso te dá uma URL pública tipo `https://abc123.ngrok-free.app` — é essa URL
-que você vai usar no passo seguinte.
+## Rodando localmente
 
-### 5. Configurar as duas tools no dashboard da Vapi
+1. Copie `.env.example` para `.env` e preencha (o `.env` está no `.gitignore`;
+   o Spring lê esse arquivo automaticamente via `spring.config.import`).
+2. `mvn spring-boot:run` → sobe em `http://localhost:8080`.
 
-No assistant que você já criou na Vapi, adicione duas functions/tools:
+Se faltar alguma variável obrigatória a aplicação nem sobe e diz qual é
+(`@Validated` no `AgendaProperties`).
 
-**Tool 1 — `check_availability`**
-- URL: `https://SEU-DOMINIO/vapi/tools/check-availability`
-- Header customizado: `X-Vapi-Secret: <o mesmo valor que você colocou em AGENDA_VAPI_WEBHOOK_SECRET>`
-- Parâmetros que a IA deve preencher: `dataInicio` (date), `dataFim` (date),
-  `preferenciaPeriodo` (string, opcional: "manha" ou "tarde")
+### Testando sem a Vapi (PowerShell)
 
-**Tool 2 — `book_meeting`**
-- URL: `https://SEU-DOMINIO/vapi/tools/book-meeting`
-- Mesmo header `X-Vapi-Secret`
-- Parâmetros: `horarioEscolhido` (um dos valores ISO que a tool anterior
-  devolveu), `nome`, `empresa`, `contato`
+```powershell
+$body = '{"message":{"type":"tool-calls","toolCallList":[{"id":"teste1","function":{"name":"check_availability","arguments":{"dataInicio":"2026-11-18","dataFim":"2026-11-21","preferenciaPeriodo":"tarde"}}}]}}'
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/vapi/tools/check-availability -ContentType 'application/json' -Headers @{ 'X-Vapi-Secret' = 'SEU_SEGREDO' } -Body $body | ConvertTo-Json -Depth 5
+```
 
-Atualize o system prompt do assistant pra mencionar essas duas tools pelo
-nome, do jeito que já deixei no rascunho anterior.
+## Expondo para a internet (teste com a Vapi)
 
-### 6. Próximo passo depois que estiver rodando
+Enquanto não há deploy definitivo, use o [ngrok](https://ngrok.com): `ngrok http 8080`.
+A URL pública gerada (ex: `https://abc123.ngrok-free.app`) é a que vai nas tools da Vapi.
 
-- Testar uma ligação de ponta a ponta pelo navegador da Vapi
-- Depois, pensar em onde fazer o deploy definitivo (Render/Railway/EC2) pra
-  não depender do ngrok — me chama quando chegar nessa parte que eu ajudo
+## Tools na Vapi
 
-## Configuração disponível (`application.yml` / variáveis de ambiente)
+Nas duas tools, em *Server*: URL do endpoint e, em *Secret*/headers,
+`X-Vapi-Secret` com o mesmo valor de `AGENDA_VAPI_WEBHOOK_SECRET`.
+
+**`check_availability`**: `dataInicio` (string, AAAA-MM-DD), `dataFim` (string,
+AAAA-MM-DD), `preferenciaPeriodo` (string opcional: `manha` ou `tarde`).
+
+**`book_meeting`**: `horarioEscolhido` (string, obrigatório — o campo `horario`
+devolvido por `check_availability`), `nome` (obrigatório), `empresa`, `telefone`,
+`email` (opcionais).
+
+## Variáveis de ambiente
 
 | Variável | Default | O que é |
 |---|---|---|
-| `AGENDA_CALENDAR_ID` | — (obrigatório) | e-mail da agenda do Patrick |
-| `AGENDA_CREDENTIALS_PATH` | `credentials/service-account.json` | caminho do JSON da service account |
-| `AGENDA_TIMEZONE` | `America/Sao_Paulo` | fuso usado nos cálculos |
-| `AGENDA_BUSINESS_HOUR_START` | `09:00` | início do expediente considerado |
-| `AGENDA_BUSINESS_HOUR_END` | `18:00` | fim do expediente considerado |
-| `AGENDA_SLOT_DURATION_MINUTES` | `30` | duração de cada reunião/slot |
-| `AGENDA_MAX_SLOTS_RETURNED` | `5` | quantos horários oferecer por chamada |
-| `AGENDA_MAX_DAYS_AHEAD` | `30` | limite de dias pra frente na busca |
+| `CAL_API_KEY` | — (obrigatório) | chave de API do Cal.com (`cal_live_...`) |
+| `CAL_EVENT_TYPE_ID` | — (obrigatório) | ID numérico do tipo de evento |
 | `AGENDA_VAPI_WEBHOOK_SECRET` | — (obrigatório) | segredo exigido no header `X-Vapi-Secret` |
+| `CAL_BASE_URL` | `https://api.cal.com/v2` | URL base da API do Cal.com |
+| `AGENDA_TIMEZONE` | `America/Sao_Paulo` | fuso usado para buscar e falar os horários |
+| `AGENDA_MAX_SLOTS_RETURNED` | `5` | quantas opções devolver por chamada |
+| `AGENDA_MAX_SLOTS_PER_DAY` | `2` | máximo de opções do mesmo dia |
+| `AGENDA_MAX_DAYS_AHEAD` | `30` | limite de dias à frente na busca |
+
+Expediente, dias úteis, duração e intervalos são configurados no próprio Cal.com.
